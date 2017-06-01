@@ -5,6 +5,8 @@ from elasticsearch import Elasticsearch
 import pprint #PrettyPrinter
 
 REMOTE_DBG = False
+ES_HOST = 'localhost'
+ES_PORT = 9200
 
 # Call this from the commandline using the following syntax: python users.py add "[{\"key\":\"value1\"}, {\"key\":\"value2\"}]"
 # python users.py add "[{\"firstName\":\"value1\"}]"
@@ -24,9 +26,46 @@ def findUserQuery(emailValue):
             }
 
 m_pp = pprint.PrettyPrinter(indent=4)
-m_es = Elasticsearch([{'host':'localhost', 'port':9200}])
+m_es = Elasticsearch([{'host':ES_HOST, 'port':ES_PORT}])
 
+# Confirm ES is running and if the user index not yet created, set up the appropriate mapping
+#python users.py init "{}"
+def initUserStore():
+    responseTxt = 'NOT OK'
+    userTypeMapping = {
+      "mappings": {
+        "userType" : {
+          "properties" : {
+            "firstName" : {
+              "type" :    "string"
+            },
+            "lastName" : {
+              "type" :   "string"
+            },
+            "email" : {
+              "type" :   "string",
+              "index" : "not_analyzed"
+            }
+          }
+        }
+      }
+                        }
+    try:
+        userStoreExists = m_es.indices.exists(index='user')
+        responseTxt = 'OK'
+    except:
+        sys.stderr.write("Please fix connection to Elasticsearch: " + ES_HOST + ":" + str(ES_PORT) + "\n")
+        sys.exit(1)
+    if not(userStoreExists):
+        res = m_es.indices.create(index='user', body=userTypeMapping)
+        if res['acknowledged'] == True:
+            responseTxt = 'OK'
+        else:
+            sys.stderr.write("Unable to define the mapping needed by the user store")
+            sys.exit(1)
+    return responseTxt
 
+# python users.py add "[{\"firstName\":\"bogusFirstName\",\"lastName\":\"bogusLastName\",\"email\":\"name@company.com\"}]"
 def addUsers(jsonTxt):
     userList = json.loads(jsonTxt)
     #x = json.loads(jsonTxt, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
@@ -38,12 +77,11 @@ def addUsers(jsonTxt):
     
 #    b = {"userId": "0"}
     for user in userList:
-        #pp.pprint(findUserQuery(user['email']))
         searchRes = m_es.search(index='user', doc_type='userType', body=findUserQuery(user['email']))
+        #m_pp.pprint(searchRes)
         if searchRes['hits']['total']:
             #User IS already in the db
             user['userId'] = searchRes['hits']['hits'][0]['_id']
-            #m_pp.pprint(searchRes)
             response['existingUserList'].append(user)
         else:
             #User is not yet in the db
@@ -57,8 +95,29 @@ def addUsers(jsonTxt):
 #    print addObject[0]['key']
     return (jsonTxt2)
     
+# python users.py delete "[{\"userId\":\"123\"}]"
 def deleteUsers(jsonTxt):
-    return ('Data passed to deleteUsers: ' + jsonTxt)
+    response = { 'deletedUserIdList' : [],
+                 'missingUserIdList' : [],
+                 'errorUserIdList' : []
+        }
+    
+    #idList = json.loads(jsonTxt, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+    userList = json.loads(jsonTxt)
+    
+    for user in userList:
+        #Might not need this try/except logic if we upgrade to ES 5.x
+        try:
+            res = m_es.delete(index='user', doc_type='userType', id=user['userId'])
+            #m_pp.pprint(res)
+            if res['found'] == True:
+                response['deletedUserIdList'].append(user)
+            else:
+                response['missingUserIdList'].append(user)
+        except:
+            response['errorUserIdList'].append(user) # ES 2.2.0 issues a NotFoundError if the specified Id is not in the DB...so this list currently contains errors as well as missing Ids. 
+    responseTxt = json.dumps(response)
+    return responseTxt
     
 # python users.py get "[{\"userId\":\"123\"}]"
 def getUsers(jsonTxt):
@@ -133,6 +192,8 @@ if __name__ == '__main__':
         print(getUsers(inputData))
     elif func == 'getAll':
         print(getAllUsers())
+    elif func == 'init':
+        print(initUserStore())
     else:
         sys.stderr.write('You asked an unsupported function: ' + func)
         sys.exit(1)
