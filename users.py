@@ -54,6 +54,12 @@ def addUsers(jsonTxt):
 #    print addObject[0]['key']
     return (jsonTxt2)
     
+# python users.py count "{}"
+def countUsers():
+    res = m_es.count(index='user', doc_type='userType')
+
+    return res['count']
+    
 # python users.py delete "[{\"userId\":\"123\"}]"
 def deleteUsers(jsonTxt):
     response = { 'deletedUserIdList' : [],
@@ -147,7 +153,7 @@ def initUserStore():
             "searchIdSet" : {
               "type" :    "string"
             },
-            "resumeSet" : {
+            "resumeIdSet" : {
               "type" :    "string"
             },
             "roleSet" : {
@@ -165,7 +171,7 @@ def initUserStore():
         sys.stderr.write(str(e))
         sys.exit(1)
     if not(userStoreExists):
-        res = m_es.indices.create(index='user', body=userTypeMapping, refresh=True)
+        res = m_es.indices.create(index='user', body=userTypeMapping)
         if res['acknowledged'] == True:
             responseTxt = 'OK'
         else:
@@ -223,6 +229,8 @@ if __name__ == '__main__':
     
     if func == 'add':
         print(addUsers(inputData))
+    elif func == 'count':
+        print(countUsers())
     elif func == 'delete':
         print(deleteUsers(inputData))
     elif func == 'getAll':
